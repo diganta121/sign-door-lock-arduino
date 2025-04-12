@@ -2,7 +2,11 @@ import numpy as np
 import time
 import cv2
 import mediapipe as mp
+import serial
 
+COM_PORT = "COM3"
+BAUD_RATE = 9600
+finger_passwd = [0, 0, 1, 1]  # password for lock
 
 locked = False
 prev = False
@@ -46,19 +50,30 @@ def finger_count(lm_list):
     return finger_fold_status
 
 
-def trigger_lock():
-    global locked, prev
-    locked = not locked
-    time.sleep(0.2)
-    # write code to send data to arduino
+def trigger_lock(ser):
+    if locked:
+        print("LOCKED")
+        # ser.write(b"0")
+        time.sleep(0.1)
 
 
-def trigger_sign(finger_status):
+def trigger_unlock(ser):
+    if locked:
+        print("UNLOCKED")
+        # ser.write(b"1")
+        time.sleep(1)
+
+
+def trigger_sign(finger_status, ser):
     # check if the correct sign is done
     # put ring finger down to take screenshot
-    if finger_status == [False, False, True, False]:
-        print("SIGN")  # take screenshot
-        trigger_lock()
+    global locked
+    if finger_status == finger_passwd:
+        trigger_unlock(ser)
+        locked = False
+    else:
+        trigger_lock(ser)
+        locked = True
 
 
 while True:
@@ -66,6 +81,11 @@ while True:
     img = cv2.flip(img, 1)
     h, w, c = img.shape
     results = hands.process(img)
+    # check if hand is detected
+    try:
+        ser = serial.Serial("COM3", 9600, timeout=0.1)
+    except:
+        print("Serial port not found")
 
     if results.multi_hand_landmarks:
         for hand_landmark in results.multi_hand_landmarks:
@@ -78,7 +98,7 @@ while True:
 
             finger_fold_status = finger_count(lm_list)
 
-            trigger_sign(finger_fold_status)
+            trigger_sign(finger_fold_status, "ser")
             print(finger_fold_status, locked)
 
             mp_draw.draw_landmarks(
@@ -88,7 +108,12 @@ while True:
                 mp_draw.DrawingSpec((0, 0, 255), 2, 2),
                 mp_draw.DrawingSpec((0, 255, 0), 4, 2),
             )
-
+    else:
+        # if no hand is detected then unlock the lock
+        if locked:
+            trigger_lock("ser")
+        else:
+            trigger_unlock("ser")
     cv2.imshow("hand tracking", img)
     key = cv2.waitKey(1)
     if key == 32:
